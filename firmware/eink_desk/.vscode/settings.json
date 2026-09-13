@@ -1,0 +1,38 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.extensionActivationMode": "always",
+  "cmake.configureOnOpen": false,
+  "cmake.configureOnEdit": false,
+  "cmake.automaticReconfigure": false,
+  "cmake.autoSelectActiveFolder": false,
+  "cmake.options.advanced": {
+    "build": {
+      "statusBarVisibility": "inherit",
+      "inheritDefault": "hidden"
+    },
+    "launch": {
+      "statusBarVisibility": "inherit",
+      "inheritDefault": "hidden"
+    },
+    "debug": {
+      "statusBarVisibility": "inherit",
+      "inheritDefault": "hidden"
+    }
+  },
+  "idf.openOcdConfigs": [
+    "board/esp32s3-builtin.cfg"
+  ],
+  "idf.port": "/dev/tty.usbmodem101",
+  "idf.currentSetup": "/Users/albertcastillo/.espressif/v5.5.5/esp-idf",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32s3",
+    "OPENOCD_USB_ADAPTER_LOCATION": "0-1"
+  },
+  "clangd.path": "/Users/albertcastillo/.espressif/tools/esp-clangd/esp-21.1.3_20260408/esp-clangd/bin/clangd",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=/Users/albertcastillo/Desktop/HardwareProjects/EinkDevice/firmware/eink_desk/build"
+  ],
+  "idf.flashType": "UART"
+}
