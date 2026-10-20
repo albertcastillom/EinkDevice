@@ -1,6 +1,8 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
+#include <stdatomic.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -16,11 +18,12 @@
 static const char *TAG = "EINK_DESK";
 
 #define INPUT_BATCH_WINDOW_MS 250
-#define BATTERY_POLL_MS 30000
+#define IDLE_SLEEP_MS 30000
+#define WEB_WINDOW_MS (5 * 60 * 1000)
 
 static todo_screen_state_t todo_state;
 static SemaphoreHandle_t todo_mutex;
-static volatile bool web_update_pending;
+static atomic_bool web_update_pending;
 
 static esp_err_t web_read_todos(todo_screen_state_t *state, void *context)
 {
@@ -54,7 +57,7 @@ static esp_err_t web_update_todos(
         todo_screen_set_item(&todo_state, index, cleaned);
     }
     const esp_err_t result = todo_store_save(&todo_state);
-    web_update_pending = result == ESP_OK;
+    if (result == ESP_OK) atomic_store(&web_update_pending, true);
     xSemaphoreGive(todo_mutex);
     ESP_LOGI(TAG, "Todo labels updated from the web page");
     return result;
@@ -73,15 +76,32 @@ static bool apply_input_event(todo_screen_state_t *state, input_event_t event)
         case INPUT_EVENT_SELECT:
             todo_screen_toggle_selected(state);
             return true;
+        case INPUT_EVENT_SELECT_LONG:
+            return false;
     }
     return false;
 }
 
+static void enter_deep_sleep(bool network_active)
+{
+    if (input_service_any_pressed()) return;
+    if (network_active) {
+        const esp_err_t result = network_service_stop();
+        if (result != ESP_OK) ESP_LOGW(TAG, "Could not stop network cleanly: %s", esp_err_to_name(result));
+    }
+    ESP_ERROR_CHECK(input_service_enable_deep_sleep_wakeup());
+    ESP_LOGI(TAG, "Entering deep sleep; press any rocker button to wake");
+    esp_deep_sleep_start();
+}
+
 void app_main(void)
 {
+    const esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
     battery_status_t battery = {.percentage = -1};
-    battery_status_t previous_battery = {.percentage = -2};
-    TickType_t last_battery_poll = 0;
+    bool display_base_ready = false;
+    bool network_active = false;
+    TickType_t web_deadline = 0;
+    TickType_t last_activity = xTaskGetTickCount();
 
     ESP_LOGI(TAG, "Initializing display and rocker input");
     ESP_ERROR_CHECK(display_service_init());
@@ -107,68 +127,86 @@ void app_main(void)
         ESP_LOGW(TAG, "Could not load todo state: %s", esp_err_to_name(load_result));
     }
     ESP_ERROR_CHECK(battery_service_read(&battery));
-    previous_battery = battery;
-    last_battery_poll = xTaskGetTickCount();
     todo_screen_render(display_service_canvas(), &todo_state, &battery);
-    ESP_ERROR_CHECK(display_service_present_full());
+    if (wakeup_cause == ESP_SLEEP_WAKEUP_EXT1) {
+        ESP_LOGI(TAG, "Woke from a rocker button; retaining the existing e-paper image");
+    } else {
+        ESP_ERROR_CHECK(display_service_present_full());
+        display_base_ready = true;
+    }
+    last_activity = xTaskGetTickCount();
     const network_todo_callbacks_t todo_callbacks = {
         .read = web_read_todos,
         .update = web_update_todos,
     };
-    ESP_ERROR_CHECK(network_service_init(&todo_callbacks));
-    ESP_LOGI(TAG, "Todo screen ready: use GPIO 4/5/6 rocker controls");
+    ESP_LOGI(TAG, "Todo screen ready; hold Select for two seconds to enable the web page");
 
     while (true) {
         input_event_t event;
         const bool received_input = input_service_wait(&event, 1000);
-        bool needs_refresh = web_update_pending;
-        if (web_update_pending) web_update_pending = false;
+        const bool needs_refresh = atomic_exchange(&web_update_pending, false);
 
         const TickType_t now = xTaskGetTickCount();
-        if (now - last_battery_poll >= pdMS_TO_TICKS(BATTERY_POLL_MS)) {
-            battery_status_t latest;
-            const esp_err_t result = battery_service_read(&latest);
-            if (result == ESP_OK) {
-                needs_refresh |= latest.percentage != previous_battery.percentage ||
-                                 latest.charging != previous_battery.charging ||
-                                 latest.battery_present != previous_battery.battery_present;
-                battery = latest;
-                previous_battery = latest;
-            } else {
-                ESP_LOGW(TAG, "Could not read battery: %s", esp_err_to_name(result));
-            }
-            last_battery_poll = now;
+        if (network_active && (int32_t)(now - web_deadline) >= 0) {
+            enter_deep_sleep(true);
+        }
+
+        if (!network_active && now - last_activity >= pdMS_TO_TICKS(IDLE_SLEEP_MS)) {
+            enter_deep_sleep(false);
         }
 
         if (!received_input && !needs_refresh) continue;
 
         bool completed_state_changed = false;
+        bool todo_input_received = false;
+        bool web_requested = false;
         if (received_input) {
+            last_activity = now;
             xSemaphoreTake(todo_mutex, portMAX_DELAY);
-            completed_state_changed = apply_input_event(&todo_state, event);
-            while (input_service_wait(&event, INPUT_BATCH_WINDOW_MS)) {
-                completed_state_changed |= apply_input_event(&todo_state, event);
+            do {
+                if (event == INPUT_EVENT_SELECT_LONG) {
+                    ESP_LOGI(TAG, "Long Select press: enabling web access for five minutes");
+                    web_requested = true;
+                } else {
+                    todo_input_received = true;
+                    completed_state_changed |= apply_input_event(&todo_state, event);
+                }
+            } while (input_service_wait(&event, INPUT_BATCH_WINDOW_MS));
+            xSemaphoreGive(todo_mutex);
+        }
+
+        if (web_requested) {
+            if (!network_active) {
+                ESP_ERROR_CHECK(network_service_init(&todo_callbacks));
+                network_active = true;
             }
+            web_deadline = xTaskGetTickCount() + pdMS_TO_TICKS(WEB_WINDOW_MS);
         }
 
         if (completed_state_changed) {
+            xSemaphoreTake(todo_mutex, portMAX_DELAY);
             const esp_err_t save_result = todo_store_save(&todo_state);
+            xSemaphoreGive(todo_mutex);
             if (save_result != ESP_OK) {
                 ESP_LOGE(TAG, "Could not save todo state: %s", esp_err_to_name(save_result));
             }
         }
 
         todo_screen_state_t render_state;
-        if (received_input) {
-            render_state = todo_state;
-            xSemaphoreGive(todo_mutex);
-        } else {
-            xSemaphoreTake(todo_mutex, portMAX_DELAY);
-            render_state = todo_state;
-            xSemaphoreGive(todo_mutex);
-        }
+        if (!todo_input_received && !needs_refresh) continue;
+        xSemaphoreTake(todo_mutex, portMAX_DELAY);
+        render_state = todo_state;
+        xSemaphoreGive(todo_mutex);
         todo_screen_render(display_service_canvas(), &render_state, &battery);
-        ESP_ERROR_CHECK(display_service_present_partial());
+        if (display_base_ready) {
+            ESP_ERROR_CHECK(display_service_present_partial());
+        } else {
+            // Deep sleep resets the ESP32-side driver state and the panel RAM is
+            // not guaranteed to retain a valid partial-refresh base. Synchronize
+            // it on the first real UI change, not merely because the CPU woke.
+            ESP_ERROR_CHECK(display_service_present_full());
+            display_base_ready = true;
+        }
         ESP_LOGI(TAG, "Selected todo item: %u", (unsigned)(render_state.selected_index + 1));
     }
 }

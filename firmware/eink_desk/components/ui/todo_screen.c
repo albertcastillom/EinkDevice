@@ -96,5 +96,5 @@ void todo_screen_render(canvas_t *canvas, const todo_screen_state_t *state, cons
 
     canvas_fill_rect(canvas, 40, 391, canvas->width - 80, 3, true);
     canvas_draw_text(canvas, 48, 416, "UP/DOWN: MOVE  CENTER: CHECK", 3);
-    canvas_draw_text(canvas, 48, 446, "WEB SETUP: 192.168.4.1", 2);
+    canvas_draw_text(canvas, 48, 446, "HOLD CENTER 2 SEC: WEB FOR 5 MIN", 2);
 }

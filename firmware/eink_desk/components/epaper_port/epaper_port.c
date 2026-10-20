@@ -698,6 +698,8 @@ void EPD_Sleep(void)
     EPD_SendData(0x01);
     vTaskDelay(pdMS_TO_TICKS(10));
     epaper_rst_0;
+    // This driver manually controls CS and assumes the panel remains selected;
+    // every later command/data helper transmits without asserting CS again.
     epaper_cs_0;
     epaper_dc_0;
     vTaskDelay(pdMS_TO_TICKS(10));

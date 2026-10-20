@@ -21,6 +21,7 @@ typedef struct {
 } network_todo_callbacks_t;
 
 esp_err_t network_service_init(const network_todo_callbacks_t *todo_callbacks);
+esp_err_t network_service_stop(void);
 network_status_t network_service_status(void);
 const char *network_service_status_text(void);
 const char *network_service_ip_address(void);

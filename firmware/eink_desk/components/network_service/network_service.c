@@ -25,6 +25,8 @@ static bool station_configured;
 static unsigned retry_count;
 static httpd_handle_t http_server;
 static network_todo_callbacks_t todos;
+static esp_netif_t *access_point_netif;
+static esp_netif_t *station_netif;
 
 static void html_escape(const char *source, char *destination, size_t size)
 {
@@ -208,6 +210,10 @@ static esp_err_t wifi_post_handler(httpd_req_t *request)
     retry_count = 0;
     current_status = NETWORK_STATUS_CONNECTING;
     strlcpy(station_ip, "connecting", sizeof(station_ip));
+    result = esp_wifi_set_mode(WIFI_MODE_APSTA);
+    if (result != ESP_OK) {
+        return httpd_resp_send_err(request, HTTPD_500_INTERNAL_SERVER_ERROR, "Could not enable Wi-Fi client");
+    }
     esp_wifi_disconnect();
     result = esp_wifi_connect();
     if (result != ESP_OK) {
@@ -247,6 +253,7 @@ static void network_event_handler(
         } else {
             current_status = NETWORK_STATUS_CONNECTION_FAILED;
             strlcpy(station_ip, "connection failed", sizeof(station_ip));
+            esp_wifi_set_mode(WIFI_MODE_APSTA);
             ESP_LOGE(TAG, "Wi-Fi connection failed; setup access point remains available");
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
@@ -299,8 +306,9 @@ esp_err_t network_service_init(const network_todo_callbacks_t *todo_callbacks)
         return result;
     }
 
-    esp_netif_create_default_wifi_ap();
-    esp_netif_create_default_wifi_sta();
+    access_point_netif = esp_netif_create_default_wifi_ap();
+    station_netif = esp_netif_create_default_wifi_sta();
+    if (access_point_netif == NULL || station_netif == NULL) return ESP_ERR_NO_MEM;
 
     wifi_init_config_t initialization = WIFI_INIT_CONFIG_DEFAULT();
     if ((result = esp_wifi_init(&initialization)) != ESP_OK) return result;
@@ -320,7 +328,10 @@ esp_err_t network_service_init(const network_todo_callbacks_t *todo_callbacks)
             .pmf_cfg = {.required = false},
         },
     };
-    if ((result = esp_wifi_set_mode(WIFI_MODE_APSTA)) != ESP_OK) return result;
+    // The setup AP exists only during the explicit five-minute web window, so
+    // keep it reachable even while the station joins a saved network.
+    const wifi_mode_t initial_mode = station_configured ? WIFI_MODE_APSTA : WIFI_MODE_AP;
+    if ((result = esp_wifi_set_mode(initial_mode)) != ESP_OK) return result;
     if ((result = esp_wifi_set_config(WIFI_IF_AP, &access_point)) != ESP_OK) return result;
 
     if ((result = esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, network_event_handler, NULL)) != ESP_OK) {
@@ -330,10 +341,29 @@ esp_err_t network_service_init(const network_todo_callbacks_t *todo_callbacks)
         return result;
     }
     if ((result = esp_wifi_start()) != ESP_OK) return result;
+    if ((result = esp_wifi_set_ps(WIFI_PS_MAX_MODEM)) != ESP_OK) return result;
     if ((result = start_http_server()) != ESP_OK) return result;
 
-    ESP_LOGI(TAG, "Setup network ready: SSID '%s', open http://192.168.4.1", SETUP_AP_SSID);
+    if (station_configured) {
+        ESP_LOGI(TAG, "Setup AP ready while connecting to saved Wi-Fi: open http://192.168.4.1");
+    } else {
+        ESP_LOGI(TAG, "Setup network ready: SSID '%s', open http://192.168.4.1", SETUP_AP_SSID);
+    }
     return ESP_OK;
+}
+
+esp_err_t network_service_stop(void)
+{
+    esp_err_t result = ESP_OK;
+    if (http_server != NULL) {
+        result = httpd_stop(http_server);
+        http_server = NULL;
+    }
+    const esp_err_t wifi_result = esp_wifi_stop();
+    if (result == ESP_OK && wifi_result != ESP_OK && wifi_result != ESP_ERR_WIFI_NOT_INIT) {
+        result = wifi_result;
+    }
+    return result;
 }
 
 network_status_t network_service_status(void)
