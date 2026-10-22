@@ -13,9 +13,11 @@
 #define ROCKER_UP_PIN GPIO_NUM_4
 #define ROCKER_SELECT_PIN GPIO_NUM_5
 #define ROCKER_DOWN_PIN GPIO_NUM_6
+#define BOOT_BACK_PIN GPIO_NUM_0
 
 #define INPUT_DEBOUNCE_MS 15
 #define INPUT_LONG_PRESS_MS 2000
+#define INPUT_RESTART_PRESS_MS 2000
 #define INPUT_QUEUE_LENGTH 16
 #define EDGE_QUEUE_LENGTH 16
 
@@ -23,7 +25,7 @@ typedef struct {
     gpio_num_t pin;
     input_event_t event;
     bool stable_pressed;
-    bool select_pending;
+    bool release_pending;
     TickType_t pressed_since;
 } button_state_t;
 
@@ -33,6 +35,7 @@ static button_state_t buttons[] = {
     {.pin = ROCKER_UP_PIN, .event = INPUT_EVENT_UP},
     {.pin = ROCKER_SELECT_PIN, .event = INPUT_EVENT_SELECT},
     {.pin = ROCKER_DOWN_PIN, .event = INPUT_EVENT_DOWN},
+    {.pin = BOOT_BACK_PIN, .event = INPUT_EVENT_BACK},
 };
 
 static button_state_t *button_for_pin(gpio_num_t pin)
@@ -58,7 +61,7 @@ static void input_event_task(void *argument)
 
     while (true) {
         TickType_t wait_ticks = portMAX_DELAY;
-        if (select_button->select_pending) {
+        if (select_button->release_pending) {
             const TickType_t elapsed = xTaskGetTickCount() - select_button->pressed_since;
             const TickType_t long_press_ticks = pdMS_TO_TICKS(INPUT_LONG_PRESS_MS);
             wait_ticks = elapsed >= long_press_ticks ? 0 : long_press_ticks - elapsed;
@@ -66,9 +69,9 @@ static void input_event_task(void *argument)
 
         gpio_num_t pin;
         if (xQueueReceive(edge_queue, &pin, wait_ticks) != pdTRUE) {
-            if (select_button->select_pending && gpio_get_level(select_button->pin) == 0) {
+            if (select_button->release_pending && gpio_get_level(select_button->pin) == 0) {
                 const input_event_t event = INPUT_EVENT_SELECT_LONG;
-                select_button->select_pending = false;
+                select_button->release_pending = false;
                 xQueueSend(event_queue, &event, 0);
             }
             continue;
@@ -81,17 +84,26 @@ static void input_event_task(void *argument)
         if (pressed == button->stable_pressed) continue;
 
         button->stable_pressed = pressed;
-        if (pressed && button->event == INPUT_EVENT_SELECT) {
-            button->select_pending = true;
+        if (pressed && (button->event == INPUT_EVENT_SELECT || button->event == INPUT_EVENT_BACK)) {
+            button->release_pending = true;
             button->pressed_since = xTaskGetTickCount();
         } else if (pressed) {
             xQueueSend(event_queue, &button->event, 0);
-        } else if (button->event == INPUT_EVENT_SELECT && button->select_pending) {
+        } else if (button->event == INPUT_EVENT_SELECT && button->release_pending) {
             const TickType_t duration = xTaskGetTickCount() - button->pressed_since;
             const input_event_t event = duration >= pdMS_TO_TICKS(INPUT_LONG_PRESS_MS)
                                             ? INPUT_EVENT_SELECT_LONG
                                             : INPUT_EVENT_SELECT;
-            button->select_pending = false;
+            button->release_pending = false;
+            xQueueSend(event_queue, &event, 0);
+        } else if (button->event == INPUT_EVENT_BACK && button->release_pending) {
+            // GPIO0 is a boot-strapping pin. Restart only after it returns high,
+            // otherwise the ESP32-S3 can enter its ROM download mode.
+            const TickType_t duration = xTaskGetTickCount() - button->pressed_since;
+            const input_event_t event = duration >= pdMS_TO_TICKS(INPUT_RESTART_PRESS_MS)
+                                            ? INPUT_EVENT_RESTART
+                                            : INPUT_EVENT_BACK;
+            button->release_pending = false;
             xQueueSend(event_queue, &event, 0);
         }
     }
@@ -116,7 +128,8 @@ esp_err_t input_service_init(void)
     const gpio_config_t config = {
         .pin_bit_mask = (1ULL << ROCKER_UP_PIN) |
                         (1ULL << ROCKER_SELECT_PIN) |
-                        (1ULL << ROCKER_DOWN_PIN),
+                        (1ULL << ROCKER_DOWN_PIN) |
+                        (1ULL << BOOT_BACK_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -199,7 +212,8 @@ esp_err_t input_service_enable_deep_sleep_wakeup(void)
 {
     const uint64_t wakeup_mask = (1ULL << ROCKER_UP_PIN) |
                                  (1ULL << ROCKER_SELECT_PIN) |
-                                 (1ULL << ROCKER_DOWN_PIN);
+                                 (1ULL << ROCKER_DOWN_PIN) |
+                                 (1ULL << BOOT_BACK_PIN);
     for (size_t index = 0; index < sizeof(buttons) / sizeof(buttons[0]); ++index) {
         esp_err_t result = rtc_gpio_pullup_en(buttons[index].pin);
         if (result != ESP_OK) return result;
@@ -217,6 +231,8 @@ const char *input_service_event_name(input_event_t event)
         case INPUT_EVENT_SELECT: return "SELECT";
         case INPUT_EVENT_SELECT_LONG: return "SELECT_LONG";
         case INPUT_EVENT_DOWN: return "DOWN";
+        case INPUT_EVENT_BACK: return "BACK";
+        case INPUT_EVENT_RESTART: return "RESTART";
         default: return "UNKNOWN";
     }
 }

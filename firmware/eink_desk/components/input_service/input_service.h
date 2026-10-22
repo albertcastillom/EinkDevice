@@ -11,6 +11,8 @@ typedef enum {
     INPUT_EVENT_SELECT,
     INPUT_EVENT_SELECT_LONG,
     INPUT_EVENT_DOWN,
+    INPUT_EVENT_BACK,
+    INPUT_EVENT_RESTART,
 } input_event_t;
 
 esp_err_t input_service_init(void);

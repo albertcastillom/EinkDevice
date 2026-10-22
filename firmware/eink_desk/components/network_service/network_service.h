@@ -13,10 +13,12 @@ typedef enum {
 
 typedef esp_err_t (*network_todo_read_fn)(todo_screen_state_t *state, void *context);
 typedef esp_err_t (*network_todo_update_fn)(const char items[TODO_SCREEN_ITEM_COUNT][TODO_SCREEN_TEXT_MAX_LENGTH + 1], void *context);
+typedef void (*network_activity_fn)(void *context);
 
 typedef struct {
     network_todo_read_fn read;
     network_todo_update_fn update;
+    network_activity_fn activity;
     void *context;
 } network_todo_callbacks_t;
 

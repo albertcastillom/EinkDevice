@@ -55,46 +55,68 @@ void todo_screen_set_item(todo_screen_state_t *state, size_t index, const char *
 
 static void draw_battery(canvas_t *canvas, const battery_status_t *battery)
 {
-    const int x = 640;
-    const int y = 42;
-    canvas_draw_rect(canvas, x, y, 72, 30, 3);
-    canvas_fill_rect(canvas, x + 72, y + 9, 6, 12, true);
+    const int x = canvas->width - 88;
+    const int y = 32;
+    canvas_draw_rect(canvas, x, y, 58, 24, 3);
+    canvas_fill_rect(canvas, x + 58, y + 7, 5, 10, true);
 
     if (battery == NULL || !battery->battery_present || battery->percentage < 0) {
-        canvas_draw_text(canvas, x - 42, y + 5, "--%", 3);
+        canvas_draw_text(canvas, x - 40, y + 5, "--%", 2);
         return;
     }
 
     int percentage = battery->percentage;
     if (percentage > 100) percentage = 100;
-    const int fill_width = percentage * 62 / 100;
-    if (fill_width > 0) canvas_fill_rect(canvas, x + 5, y + 5, fill_width, 20, true);
+    const int fill_width = percentage * 48 / 100;
+    if (fill_width > 0) canvas_fill_rect(canvas, x + 5, y + 5, fill_width, 14, true);
 
     char label[8];
     snprintf(label, sizeof(label), "%d%%", percentage);
-    canvas_draw_text(canvas, x - 70, y + 5, label, 3);
-    if (battery->charging) canvas_draw_text(canvas, x + 84, y + 5, "+", 3);
+    canvas_draw_text(canvas, x - 48, y + 5, label, 2);
+    if (battery->charging) canvas_draw_text(canvas, x + 68, y + 5, "+", 2);
+}
+
+static void draw_wrapped_item(canvas_t *canvas, int x, int y, const char *text)
+{
+    char first_line[19] = {0};
+    char second_line[19] = {0};
+    const size_t length = strlen(text);
+    size_t split = length > 18 ? 18 : length;
+
+    if (length > 18) {
+        while (split > 0 && text[split] != ' ') --split;
+        if (split == 0) split = 18;
+    }
+
+    memcpy(first_line, text, split);
+    first_line[split] = '\0';
+    while (split < length && text[split] == ' ') ++split;
+    strlcpy(second_line, text + split, sizeof(second_line));
+
+    canvas_draw_text(canvas, x, y, first_line, 3);
+    if (second_line[0] != '\0') canvas_draw_text(canvas, x, y + 32, second_line, 3);
 }
 
 void todo_screen_render(canvas_t *canvas, const todo_screen_state_t *state, const battery_status_t *battery)
 {
     canvas_clear(canvas, false);
     canvas_draw_rect(canvas, 12, 12, canvas->width - 24, canvas->height - 24, 4);
-    canvas_draw_text(canvas, 42, 38, "MY TODO LIST", 7);
     draw_battery(canvas, battery);
-    canvas_fill_rect(canvas, 40, 102, canvas->width - 80, 3, true);
+    canvas_draw_text(canvas, 46, 78, "MY TODO LIST", 5);
+    canvas_fill_rect(canvas, 30, 142, canvas->width - 60, 3, true);
 
     for (size_t index = 0; index < TODO_SCREEN_ITEM_COUNT; ++index) {
-        const int y = 135 + (int)index * 82;
+        const int y = 175 + (int)index * 88;
         if (index == state->selected_index) {
-            canvas_draw_text(canvas, 38, y + 4, ">", 4);
-            canvas_draw_rect(canvas, 28, y - 12, canvas->width - 56, 60, 2);
+            canvas_draw_text(canvas, 42, y + 14, ">", 4);
+            canvas_draw_rect(canvas, 28, y - 8, canvas->width - 56, 70, 2);
         }
-        draw_checkbox(canvas, 78, y, state->completed[index]);
-        canvas_draw_text(canvas, 135, y + 3, state->items[index], 4);
+        draw_checkbox(canvas, 78, y + 10, state->completed[index]);
+        const int text_y = strlen(state->items[index]) > 18 ? y + 2 : y + 16;
+        draw_wrapped_item(canvas, 132, text_y, state->items[index]);
     }
 
-    canvas_fill_rect(canvas, 40, 391, canvas->width - 80, 3, true);
-    canvas_draw_text(canvas, 48, 416, "UP/DOWN: MOVE  CENTER: CHECK", 3);
-    canvas_draw_text(canvas, 48, 446, "HOLD CENTER 2 SEC: WEB FOR 5 MIN", 2);
+    canvas_fill_rect(canvas, 30, canvas->height - 100, canvas->width - 60, 3, true);
+    canvas_draw_text(canvas, 72, canvas->height - 72, "UP/DOWN: MOVE  CENTER: CHECK", 2);
+    canvas_draw_text(canvas, 54, canvas->height - 42, "BOOT: BACK  HOLD CENTER: WEB", 2);
 }

@@ -15,6 +15,7 @@ esp_err_t display_service_init(void)
     if (!canvas_init(&display_canvas, framebuffer, sizeof(framebuffer), EPD_WIDTH, EPD_HEIGHT)) {
         return ESP_ERR_INVALID_SIZE;
     }
+    canvas_set_rotation(&display_canvas, CANVAS_ROTATION_270);
     epaper_port_init();
     initialized = true;
     return ESP_OK;

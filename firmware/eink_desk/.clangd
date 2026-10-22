@@ -1,2 +1,7 @@
 CompileFlags:
     Remove: [-f*, -m*]
+    Add:
+        - -isystem
+        - /Users/albertcastillo/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20260121/xtensa-esp-elf/lib/gcc/xtensa-esp-elf/14.2.0/include
+Diagnostics:
+    Suppress: [atomic_op_needs_trivial_copy]

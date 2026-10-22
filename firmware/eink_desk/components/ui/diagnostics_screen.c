@@ -13,14 +13,14 @@ void diagnostics_screen_render(canvas_t *canvas)
 {
     canvas_clear(canvas, false);
     canvas_draw_rect(canvas, 12, 12, canvas->width - 24, canvas->height - 24, 4);
-    canvas_draw_text(canvas, 42, 40, "E-INK DESK", 7);
-    canvas_fill_rect(canvas, 40, 105, canvas->width - 80, 3, true);
-    draw_check(canvas, 48, 145);
-    canvas_draw_text(canvas, 100, 147, "DISPLAY DRIVER: OK", 4);
-    draw_check(canvas, 48, 215);
-    canvas_draw_text(canvas, 100, 217, "SERIAL OUTPUT: OK", 4);
-    draw_check(canvas, 48, 285);
-    canvas_draw_text(canvas, 100, 287, "UI LAYERS: READY", 4);
-    canvas_fill_rect(canvas, 40, 365, canvas->width - 80, 3, true);
-    canvas_draw_text(canvas, 48, 395, "NEXT: ROCKER INPUT", 3);
+    canvas_draw_text(canvas, 58, 72, "E-INK DESK", 6);
+    canvas_fill_rect(canvas, 30, 142, canvas->width - 60, 3, true);
+    draw_check(canvas, 48, 205);
+    canvas_draw_text(canvas, 100, 210, "DISPLAY DRIVER: OK", 3);
+    draw_check(canvas, 48, 315);
+    canvas_draw_text(canvas, 100, 320, "SERIAL OUTPUT: OK", 3);
+    draw_check(canvas, 48, 425);
+    canvas_draw_text(canvas, 100, 430, "UI LAYERS: READY", 3);
+    canvas_fill_rect(canvas, 30, canvas->height - 100, canvas->width - 60, 3, true);
+    canvas_draw_text(canvas, 86, canvas->height - 65, "NEXT: ROCKER INPUT", 3);
 }

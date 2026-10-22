@@ -1,5 +1,5 @@
 {
-  "C_Cpp.intelliSenseEngine": "default",
+  "C_Cpp.intelliSenseEngine": "disabled",
   "idf.extensionActivationMode": "always",
   "cmake.configureOnOpen": false,
   "cmake.configureOnEdit": false,
@@ -22,7 +22,6 @@
   "idf.openOcdConfigs": [
     "board/esp32s3-builtin.cfg"
   ],
-  "idf.port": "/dev/tty.usbmodem101",
   "idf.currentSetup": "/Users/albertcastillo/.espressif/v5.5.5/esp-idf",
   "idf.customExtraVars": {
     "IDF_TARGET": "esp32s3",
@@ -32,7 +31,8 @@
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=/Users/albertcastillo/Desktop/HardwareProjects/EinkDevice/firmware/eink_desk/build"
+    "--compile-commands-dir=${workspaceFolder}/build"
   ],
-  "idf.flashType": "UART"
+  "idf.flashType": "UART",
+  "idf.port": "/dev/tty.usbmodem101"
 }

@@ -41,8 +41,30 @@ bool canvas_init(canvas_t *canvas, uint8_t *pixels, size_t buffer_size, uint16_t
     if (canvas == NULL || pixels == NULL || width == 0 || height == 0) return false;
     const uint16_t stride = (uint16_t)((width + 7U) / 8U);
     if (buffer_size < (size_t)stride * height) return false;
-    *canvas = (canvas_t){pixels, width, height, stride, buffer_size};
+    *canvas = (canvas_t){
+        .pixels = pixels,
+        .width = width,
+        .height = height,
+        .stride = stride,
+        .storage_width = width,
+        .storage_height = height,
+        .buffer_size = buffer_size,
+        .rotation = CANVAS_ROTATION_0,
+    };
     return true;
+}
+
+void canvas_set_rotation(canvas_t *canvas, canvas_rotation_t rotation)
+{
+    if (canvas == NULL) return;
+    canvas->rotation = rotation;
+    if (rotation == CANVAS_ROTATION_90 || rotation == CANVAS_ROTATION_270) {
+        canvas->width = canvas->storage_height;
+        canvas->height = canvas->storage_width;
+    } else {
+        canvas->width = canvas->storage_width;
+        canvas->height = canvas->storage_height;
+    }
 }
 
 void canvas_clear(canvas_t *canvas, bool black)
@@ -53,8 +75,17 @@ void canvas_clear(canvas_t *canvas, bool black)
 void canvas_set_pixel(canvas_t *canvas, int x, int y, bool black)
 {
     if (canvas == NULL || canvas->pixels == NULL || x < 0 || y < 0 || x >= canvas->width || y >= canvas->height) return;
-    const size_t index = (size_t)y * canvas->stride + (size_t)x / 8U;
-    const uint8_t mask = (uint8_t)(0x80U >> (x % 8));
+    int storage_x = x;
+    int storage_y = y;
+    if (canvas->rotation == CANVAS_ROTATION_90) {
+        storage_x = canvas->storage_width - 1 - y;
+        storage_y = x;
+    } else if (canvas->rotation == CANVAS_ROTATION_270) {
+        storage_x = y;
+        storage_y = canvas->storage_height - 1 - x;
+    }
+    const size_t index = (size_t)storage_y * canvas->stride + (size_t)storage_x / 8U;
+    const uint8_t mask = (uint8_t)(0x80U >> (storage_x % 8));
     if (black) canvas->pixels[index] &= (uint8_t)~mask;
     else canvas->pixels[index] |= mask;
 }
